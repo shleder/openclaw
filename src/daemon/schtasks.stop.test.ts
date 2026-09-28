@@ -905,8 +905,12 @@ describe("Scheduled Task stop/restart cleanup", () => {
     await withPreparedGatewayTask(async ({ env, stdout }) => {
       pushSuccessfulSchtasksResponses(3);
       mockWindowsTaskkillSuccess();
-      const foreignGatewayCommandLine =
-        '"C:\\Program Files\\nodejs\\node.exe" "D:\\other-checkout\\node_modules\\openclaw\\dist\\index.js" gateway --port 18789';
+      const foreignRoot = path.join(expectDefined(env.USERPROFILE, "fixture home"), "other-%%-^!");
+      const foreignScript = path.join(foreignRoot, "dist", "index.js");
+      await fs.mkdir(path.dirname(foreignScript), { recursive: true });
+      await fs.writeFile(path.join(foreignRoot, "package.json"), '{"name":"openclaw"}');
+      await fs.writeFile(foreignScript, "");
+      const foreignGatewayCommandLine = `"C:\\Program Files\\nodejs\\node.exe" "${foreignScript}" gateway --port 18789`;
       inspectPortUsageMock.mockResolvedValue(
         busyPortUsage(6262, { commandLine: foreignGatewayCommandLine }),
       );
@@ -915,7 +919,7 @@ describe("Scheduled Task stop/restart cleanup", () => {
 
       expect(String(failure)).toContain("remaining listener ownership could not be verified");
       expect(String(failure)).toContain("pid 6262");
-      expect(String(failure)).toContain("openclaw gateway");
+      expect(String(failure)).toContain("pid 6262 (node.exe, openclaw gateway)");
       expect(killProcessTreeMock).not.toHaveBeenCalled();
       expect(taskkillPids()).not.toContain(6262);
     });
