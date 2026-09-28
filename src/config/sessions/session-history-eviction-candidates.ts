@@ -3,6 +3,7 @@ import {
   iterateSqliteQuerySync,
   sqliteStringSet,
 } from "../../infra/kysely-sync.js";
+import { collectActiveSessionWorkAdmissions } from "../../sessions/session-lifecycle-admission.js";
 import { withOpenClawAgentDatabaseReadOnly } from "../../state/openclaw-agent-db-readonly.js";
 import type {
   OpenClawAgentDatabaseOptions,
@@ -27,6 +28,17 @@ type DiskEvictableArchivedSession = {
 };
 
 const DISK_EVICTABLE_ARCHIVE_BATCH_SIZE = 64;
+
+/** Session ids owned by in-flight work admissions, without live-reference protection. */
+export function collectAdmissionProtectedSessionIds(params: {
+  database: Pick<OpenClawAgentDatabase, "db">;
+  storePath: string;
+}): Set<string> {
+  return collectSessionAdmissionReferences({
+    database: params.database,
+    admissionIdentities: [...(collectActiveSessionWorkAdmissions().get(params.storePath) ?? [])],
+  });
+}
 
 export function readDiskEvictableArchivedSessionBatch(params: {
   after?: { archivedAt: number; sessionKey: string };
@@ -98,7 +110,7 @@ export function readDiskEvictableArchivedSessionBatch(params: {
 }
 
 /** Resolve a captured admission snapshot without consulting another thread's live owners. */
-export function collectSessionAdmissionReferences(params: {
+function collectSessionAdmissionReferences(params: {
   database: Pick<OpenClawAgentDatabase, "db">;
   admissionIdentities: readonly string[];
 }): Set<string> {

@@ -56,6 +56,7 @@ import {
   readSessionColdTranscript,
 } from "./session-cold-storage-state.js";
 import { deleteSessionTranscriptIndexInTransaction } from "./session-transcript-index.js";
+import { withSessionHistoryWorkerDatabase } from "./session-transcript-worker-runtime.js";
 import type { SessionEntry } from "./types.js";
 
 // Transcript-state reclamation owner. Planning stays async-free; transactions revalidate before delete.
@@ -386,16 +387,13 @@ export async function projectSessionEntryLifecycleMutation(
       !hasPreparedNativeSessionDeletion() &&
       params.removals.length === 0 &&
       supportsOpenClawAgentDatabaseExecution(databaseOptions)
-        ? await import("./session-transcript-worker-runtime.js").then(
-            ({ withSessionHistoryWorkerDatabase }) =>
-              withSessionHistoryWorkerDatabase(databaseOptions, (reader) =>
-                reader.readExactEntries({
-                  projection: "lifecycle",
-                  includeAuthorization: true,
-                  sessionKeys,
-                  env: { ...(databaseOptions.env ?? process.env) },
-                }),
-              ),
+        ? await withSessionHistoryWorkerDatabase(databaseOptions, (reader) =>
+            reader.readExactEntries({
+              projection: "lifecycle",
+              includeAuthorization: true,
+              sessionKeys,
+              env: { ...(databaseOptions.env ?? process.env) },
+            }),
           )
         : undefined;
     const store = snapshot
