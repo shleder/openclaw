@@ -518,7 +518,6 @@ export const databaseWorkerCoreTestFiles = [
   "test/runtime-agent.codex-initialization.integration.test.ts",
   "packages/memory-host-sdk/src/host/session-memory-sync.test.ts",
   "src/agents/harness/native-hook-relay-store.test.ts",
-  "src/agents/harness/native-hook-relay.approval-binding.test.ts",
   "src/agents/harness/native-hook-relay.approval-wait.test.ts",
   "src/agents/harness/native-hook-relay.execution-admission.test.ts",
   "src/agents/harness/native-hook-relay.lifecycle.test.ts",
