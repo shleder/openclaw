@@ -1,4 +1,3 @@
-// Orchestrates security audit collection and report formatting.
 import path from "node:path";
 import { asNullableRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
@@ -344,6 +343,7 @@ async function collectFilesystemFindings(params: {
     exec: params.execIcacls,
   });
   if (stateDirPerms.ok) {
+    let permissionFinding: SecurityAuditFinding | undefined;
     if (stateDirPerms.isSymlink) {
       findings.push({
         checkId: "fs.state_dir.symlink",
@@ -353,39 +353,30 @@ async function collectFilesystemFindings(params: {
       });
     }
     if (stateDirPerms.worldWritable) {
-      findings.push({
+      permissionFinding = {
         checkId: "fs.state_dir.perms_world_writable",
         severity: "critical",
         title: "State dir is world-writable",
         detail: `${formatPermissionDetail(params.stateDir, stateDirPerms)}; other users can write into your OpenClaw state.`,
-        remediation: formatPermissionRemediation({
-          targetPath: params.stateDir,
-          perms: stateDirPerms,
-          isDir: true,
-          posixMode: 0o700,
-          env: params.env,
-        }),
-      });
+      };
     } else if (stateDirPerms.groupWritable) {
-      findings.push({
+      permissionFinding = {
         checkId: "fs.state_dir.perms_group_writable",
         severity: "warn",
         title: "State dir is group-writable",
         detail: `${formatPermissionDetail(params.stateDir, stateDirPerms)}; group users can write into your OpenClaw state.`,
-        remediation: formatPermissionRemediation({
-          targetPath: params.stateDir,
-          perms: stateDirPerms,
-          isDir: true,
-          posixMode: 0o700,
-          env: params.env,
-        }),
-      });
+      };
     } else if (stateDirPerms.groupReadable || stateDirPerms.worldReadable) {
-      findings.push({
+      permissionFinding = {
         checkId: "fs.state_dir.perms_readable",
         severity: "warn",
         title: "State dir is readable by others",
         detail: `${formatPermissionDetail(params.stateDir, stateDirPerms)}; consider restricting to 700.`,
+      };
+    }
+    if (permissionFinding) {
+      findings.push({
+        ...permissionFinding,
         remediation: formatPermissionRemediation({
           targetPath: params.stateDir,
           perms: stateDirPerms,
@@ -403,6 +394,7 @@ async function collectFilesystemFindings(params: {
     exec: params.execIcacls,
   });
   if (configPerms.ok) {
+    let permissionFinding: SecurityAuditFinding | undefined;
     const skipReadablePermWarnings = configPerms.isSymlink;
     if (configPerms.isSymlink) {
       findings.push({
@@ -413,39 +405,30 @@ async function collectFilesystemFindings(params: {
       });
     }
     if (configPerms.worldWritable || configPerms.groupWritable) {
-      findings.push({
+      permissionFinding = {
         checkId: "fs.config.perms_writable",
         severity: "critical",
         title: "Config file is writable by others",
         detail: `${formatPermissionDetail(params.configPath, configPerms)}; another user could change gateway/auth/tool policies.`,
-        remediation: formatPermissionRemediation({
-          targetPath: params.configPath,
-          perms: configPerms,
-          isDir: false,
-          posixMode: 0o600,
-          env: params.env,
-        }),
-      });
+      };
     } else if (!skipReadablePermWarnings && configPerms.worldReadable) {
-      findings.push({
+      permissionFinding = {
         checkId: "fs.config.perms_world_readable",
         severity: "critical",
         title: "Config file is world-readable",
         detail: `${formatPermissionDetail(params.configPath, configPerms)}; config can contain tokens and private settings.`,
-        remediation: formatPermissionRemediation({
-          targetPath: params.configPath,
-          perms: configPerms,
-          isDir: false,
-          posixMode: 0o600,
-          env: params.env,
-        }),
-      });
+      };
     } else if (!skipReadablePermWarnings && configPerms.groupReadable) {
-      findings.push({
+      permissionFinding = {
         checkId: "fs.config.perms_group_readable",
         severity: "warn",
         title: "Config file is group-readable",
         detail: `${formatPermissionDetail(params.configPath, configPerms)}; config can contain tokens and private settings.`,
+      };
+    }
+    if (permissionFinding) {
+      findings.push({
+        ...permissionFinding,
         remediation: formatPermissionRemediation({
           targetPath: params.configPath,
           perms: configPerms,
@@ -556,12 +539,7 @@ function collectElevatedFindings(cfg: OpenClawConfig): SecurityAuditFinding[] {
   const findings: SecurityAuditFinding[] = [];
   const enabled = cfg.tools?.elevated?.enabled;
   const allowFrom = cfg.tools?.elevated?.allowFrom ?? {};
-  const anyAllowFromKeys = Object.keys(allowFrom).length > 0;
-
   if (enabled === false) {
-    return findings;
-  }
-  if (!anyAllowFromKeys) {
     return findings;
   }
 
@@ -635,16 +613,17 @@ function collectExecRuntimeFindings(cfg: OpenClawConfig): SecurityAuditFinding[]
     });
   }
 
+  const inheritedExec = resolveExecModePolicy({
+    mode: cfg.tools?.exec?.mode,
+    security: cfg.tools?.exec?.security ?? "deny",
+    ask: cfg.tools?.exec?.ask ?? "off",
+  });
   const effectiveExecScopes = Array.from(
     new Map(
       [
         {
           id: defaultAgentId ?? "global",
-          security: resolveExecModePolicy({
-            mode: cfg.tools?.exec?.mode,
-            security: cfg.tools?.exec?.security ?? "deny",
-            ask: cfg.tools?.exec?.ask ?? "off",
-          }).security,
+          security: inheritedExec.security,
           host: cfg.tools?.exec?.host ?? "auto",
         },
         ...agents
@@ -653,17 +632,12 @@ function collectExecRuntimeFindings(cfg: OpenClawConfig): SecurityAuditFinding[]
               Boolean(entry) && typeof entry === "object" && typeof entry.id === "string",
           )
           .map((entry) => {
-            const inherited = resolveExecModePolicy({
-              mode: cfg.tools?.exec?.mode,
-              security: cfg.tools?.exec?.security ?? "deny",
-              ask: cfg.tools?.exec?.ask ?? "off",
-            });
             return {
               id: entry.id,
               security: resolveExecModePolicy({
                 mode: entry.tools?.exec?.mode,
-                security: entry.tools?.exec?.security ?? inherited.security,
-                ask: entry.tools?.exec?.ask ?? inherited.ask,
+                security: entry.tools?.exec?.security ?? inheritedExec.security,
+                ask: entry.tools?.exec?.ask ?? inheritedExec.ask,
               }).security,
               host: entry.tools?.exec?.host ?? cfg.tools?.exec?.host ?? "auto",
             };
@@ -1138,13 +1112,7 @@ function collectOpenExecSurfacePaths(cfg: OpenClawConfig): string[] {
       hits.add(`${scope}.dmPolicy`);
     }
     for (const [key, nested] of Object.entries(record)) {
-      if (key === "groups" || key === "accounts" || key === "dms") {
-        visit(nested, `${scope}.${key}`);
-        continue;
-      }
-      if (asNullableRecord(nested)) {
-        visit(nested, `${scope}.${key}`);
-      }
+      visit(nested, `${scope}.${key}`);
     }
   };
   for (const [channelId, channelValue] of Object.entries(channels)) {

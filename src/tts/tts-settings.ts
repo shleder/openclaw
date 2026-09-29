@@ -92,14 +92,10 @@ export function asProviderConfig(value: unknown): SpeechProviderConfig {
   return withSpeakerSelectionCompat(asNonArrayRecord(value));
 }
 
-export function asProviderConfigMap(value: unknown): Record<string, unknown> {
-  return asNonArrayRecord(value);
-}
-
 function normalizeProviderConfigMap(
   value: unknown,
 ): Record<string, SpeechProviderConfig> | undefined {
-  const rawMap = asProviderConfigMap(value);
+  const rawMap = asNonArrayRecord(value);
   if (Object.keys(rawMap).length === 0) {
     return undefined;
   }
@@ -112,7 +108,7 @@ function normalizeProviderConfigMap(
 }
 
 function collectTtsPersonas(raw: TtsConfig): Record<string, ResolvedTtsPersona> {
-  const rawPersonas = asProviderConfigMap(raw.personas);
+  const rawPersonas = asNonArrayRecord(raw.personas);
   const personas: Record<string, ResolvedTtsPersona> = {};
   for (const [id, value] of Object.entries(rawPersonas)) {
     const normalizedId = normalizeTtsPersonaId(id);
